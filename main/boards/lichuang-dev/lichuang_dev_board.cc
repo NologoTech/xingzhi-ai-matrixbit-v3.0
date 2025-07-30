@@ -38,6 +38,8 @@ public:
 };
 
 class CustomAudioCodec : public BoxAudioCodec {
+
+    
 private:
     Pca9557* pca9557_;
 
@@ -151,6 +153,7 @@ private:
         ESP_ERROR_CHECK(esp_lcd_new_panel_st7789(panel_io, &panel_config, &panel));
         
         esp_lcd_panel_reset(panel);
+        
         pca9557_->SetOutputState(0, 0);
 
         esp_lcd_panel_init(panel);

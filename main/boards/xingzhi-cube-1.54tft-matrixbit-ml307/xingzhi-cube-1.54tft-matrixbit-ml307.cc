@@ -25,8 +25,11 @@
 #include <esp_sleep.h>
 #include <wifi_station.h>
 #include "esp32_camera.h"
+#include "rp2040iic.h"
 #include "aht30_sensor.h"
 #include "sc7a20h.h"
+
+#include "uartcmdsend.h"
 
 
 #include "esp_vfs_fat.h"
@@ -43,20 +46,145 @@ LV_FONT_DECLARE(font_awesome_20_4);
 LV_FONT_DECLARE(font_puhui_14_1);
 LV_FONT_DECLARE(font_awesome_14_1);
 
-class Rp2040 : public I2cDevice {
-public:
-    Rp2040(i2c_master_bus_handle_t i2c_bus, uint8_t addr) : I2cDevice(i2c_bus, addr) {
-        WriteReg(0x41, 0x11);
-        printf("rp2040 init success\n");
-        //WriteReg(0x03, 0xf8);
-    }
 
-    void SetOutputState(uint8_t bit, uint8_t level) {
-        uint8_t data = ReadReg(0x01);
-        data = (data & ~(1 << bit)) | (level << bit);
-        WriteReg(0x01, data);
-    }
-};
+// class Rp2040 : public I2cDevice {
+// public:
+// Rp2040(i2c_master_bus_handle_t i2c_bus, uint8_t addr) : I2cDevice(i2c_bus, addr) {
+
+//     // for (int i = 0; i < 4; i++) {
+//     //     uint8_t reg_addr = 0x01 + i;
+//     //     uint8_t reg_data = 0x01 + i;
+//     //     WriteReg(reg_addr, reg_data);
+//     //     printf("Write 0x%02X to register 0x%02X\n", reg_data, reg_addr);
+//     // }
+
+//         printf("rp2040 init success\n");
+//         uint8_t reg_25io_option = 1;
+//         WriteReg(0x66, reg_25io_option);
+//     // ReadMultipleRegs(0x01, 0x05);
+
+
+//  }
+//     void ready_IO()
+//     {
+//         uint8_t  Data_iicready =  ReadReg(0x01);
+//         printf("Data_iicready = 0x%02X\n", Data_iicready);
+
+//     }
+//         void io25_set_option()
+//         {
+//            WriteReg(0x66, 1);
+//         }
+
+//         void ReadMultipleRegs(uint8_t start_addr, uint8_t end_addr) {
+            
+//         if (start_addr > end_addr || end_addr > 0xFF) {
+//             printf("Invalid register range\n");
+//             return;
+//         }
+        
+//         printf("Reading registers from 0x%02X to 0x%02X:\n", start_addr, end_addr);
+        
+//         for (uint8_t addr = start_addr; addr <= end_addr; addr++) {
+//             uint8_t data = ReadReg(addr);
+//             printf("Register 0x%02X: 0x%02X\n", addr, data);
+//         }
+//     }
+
+//         // 基础位操作函数 - 指定寄存器地址版本  极性寄存器 0x06-0x0B
+//         void SetOutputStateAtAddr(uint8_t reg_addr, uint8_t bit, uint8_t level) {
+//             uint8_t data = ReadReg(reg_addr);
+//             data = (data & ~(1 << bit)) | (level << bit);
+//             WriteReg(reg_addr, data);
+//         }
+
+//     // 新增：合并读取两个寄存器为16位值
+//     uint16_t ReadCombinedRegs(uint8_t high_addr, uint8_t low_addr) {
+//         uint8_t high_byte = ReadReg(high_addr);
+//         uint8_t low_byte = ReadReg(low_addr);
+//         return (high_byte << 8) | low_byte;
+//     }
+
+//     // 新增：控制RGB灯
+//     void SetRGBColor(uint8_t red, uint8_t green, uint8_t blue) {
+//         WriteReg(0x12, red);    // 设置红色分量
+//         WriteReg(0x13, green);  // 设置绿色分量
+//         WriteReg(0x14, blue);   // 设置蓝色分量
+        
+//         printf("RGB颜色已设置 - 红: 0x%02X, 绿: 0x%02X, 蓝: 0x%02X\n", red, green, blue);
+//     }
+
+
+//         //增加：读取芯片温度
+//     uint8_t GetTemperature() {
+//         return ReadReg(0x15); // 假设温度数据存储在0x15寄存器
+//     }
+
+//       //读取光线值
+//           // 增加：读取光线强度
+//     uint8_t GetLightIntensity() {
+//         return ReadReg(0x16); // 假设光线数据存储在0x16寄存器
+//     }
+
+//     // 设置PWM输出
+//     bool SetPwmOutput(uint8_t channel, uint8_t value) {
+//         if (channel < 0 || channel > 16) {
+//             printf("PWM通道号超出范围 (0-16)\n");
+//             return false;
+//         }
+        
+//         if (value < 0 || value > 255) {
+//             printf("PWM值超出范围 (0-255)\n");
+//             return false;
+//         }
+        
+//         uint8_t reg_addr = 0x20 + channel;
+//         WriteReg(reg_addr, value);
+        
+//         printf("PWM通道 %d (寄存器0x%02X) 设置为: 0x%02X (%d%%)\n", 
+//                channel, reg_addr, value, (value * 100) / 255);
+        
+//         return true;
+//     }
+
+//     // 设置单个舵机角度
+// bool SetServoAngle(uint8_t servo_id, uint8_t angle) {
+//     if (servo_id < 1 || servo_id > 11) {
+//         printf("舵机ID超出范围 (1-11)\n");
+//         return false;
+//     }
+    
+//     if (angle < 0 || angle > 180) {
+//         printf("舵机角度超出范围 (0-180度)\n");
+//         return false;
+//     }
+    
+//     uint8_t reg_addr = 0x30 + servo_id; // 寄存器地址 0x31 到 0x41
+//     WriteReg(reg_addr, angle);
+    
+//     printf("舵机 %d (寄存器0x%02X) 设置为: %d 度\n", 
+//            servo_id, reg_addr, angle);
+    
+//     return true;
+// }
+
+// // 批量设置多个舵机角度
+// bool SetServoAngles(const std::vector<std::pair<uint8_t, uint8_t>>& servo_angles) {
+//     bool all_success = true;
+    
+//     for (const auto& pair : servo_angles) {
+//         uint8_t servo_id = pair.first;
+//         uint8_t angle = pair.second;
+        
+//         if (!SetServoAngle(servo_id, angle)) {
+//             all_success = false;
+//         }
+//     }
+    
+//     return all_success;
+// }
+
+// };
 
 
 class CustomLcdDisplay : public SpiLcdDisplay {
@@ -103,6 +231,7 @@ private:
         lv_obj_set_style_text_font(accel_label_, &font_puhui_14_1, 0);
         lv_obj_set_width(accel_label_, width_ * 0.9); // 占满容器宽度
         lv_obj_align(accel_label_, LV_ALIGN_TOP_LEFT, 10, 5); // 顶部左侧，由布局自动排列
+
 
         // 创建SD卡状态显示标签 - 第三行
         sdcard_label_ = lv_label_create(text_box_container);
@@ -237,6 +366,14 @@ private:
         power_save_timer_->SetEnabled(true);
     }
 
+
+
+        // 添加一个标志位来记录扫描结果
+    esp_err_t err;
+    bool is_device_41_found = false;
+    bool is_device_18_found = false;
+
+
     void InitializeI2c() {
         // Initialize I2C peripheral
         i2c_master_bus_config_t i2c_bus_cfg = {
@@ -254,11 +391,33 @@ private:
         };
         ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_bus_cfg, &i2c_bus_));
 
+        for (uint8_t addr = 1; addr < 127; addr++) {  //扫描iic驱动地址
+            err = i2c_master_probe(i2c_bus_, addr, 100);
+            if (err == ESP_OK) {
+                ESP_LOGI(TAG, "Device found at address 0x%02X", addr);
+                if (addr == 0x41) {
+                    is_device_41_found = true;
+                }
+                if (addr == 0x18) {
+                    is_device_18_found = true;
+                }
+            }
+        }
+
         // Initialize PCA9557
-        Rp2040_ = new Rp2040(i2c_bus_, 0x41);
+         Rp2040_ = new Rp2040(i2c_bus_, 0x55); //oycation
+         err = Rp2040_->StartReading(3000);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to initialize AHT30 sensor (err=0x%x)", err);
+            return;
+        }
+
+
     }
 
     void InitializeAHT30Sensor() {
+        uint8_t reciving = 0;
+        uint8_t recivingligh = 0;
         // 初始化传感器
         aht30_sensor_ = new Aht30Sensor(i2c_bus_);
         esp_err_t err = aht30_sensor_->Initialize();
@@ -277,6 +436,22 @@ private:
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "Failed to start periodic readings (err=0x%x)", err);
         }
+
+
+            //      Rp2040_->SetRGBColor(10, 10, 10);
+            //      Rp2040_->ready_IO();  // 修正：通过Rp2040_对象调用 重启问题
+            //      Rp2040_->SetBrightness(100);
+            //      Rp2040_->ReadMultipleRegs(0x01,0x05); //读取数据
+                //  reciving = Rp2040_->GetTemperature();
+                //  recivingligh = Rp2040_->GetLightIntensity();
+                //  Rp2040_->SetPwmOutput(1, 254);
+                    // Rp2040_->SetServoAngle(1, 90);
+                //  Rp2040_->SetServoAngles({ {2, 90}, {3, 90}, {4, 90}, {5, 90}, {6, 90}, {7, 90}, {8, 90}, {9, 90}, {10, 90}, {11, 90} });
+                //  ESP_LOGE("", "reciving:%d,recivingligh:%d", reciving,recivingligh); 
+
+                 // 读取0x0C(高8位)和0x0D(低8位)合并为16位值
+                //  uint16_t combinedValue = Rp2040_->ReadCombinedRegs(0x0C, 0x0D);
+                //  printf("Combined value: 0x%04X\n", combinedValue);
     }
 
     // 更新温湿度显示
@@ -340,7 +515,7 @@ private:
             .quadhd_io_num = -1,
             .max_transfer_sz = 400000,
         };
-        
+
         // 初始化SPI总线
         esp_err_t err = spi_bus_initialize(SDCARD_SPI_HOST, &bus_cnf, SPI_DMA_CH_AUTO);
         if (err != ESP_OK) {
@@ -383,6 +558,7 @@ private:
         // #ifdef CONFIG_SDMMC_USE_CUSTOM_PINS
         sdmmc_card_print_info(stdout, card);
 
+    
         // // Use POSIX and C standard library functions to work with files.
 
         // // First create a file.
@@ -459,7 +635,7 @@ private:
         boot_button_.OnDoubleClick([this]() {
             auto& app = Application::GetInstance();
             if (app.GetDeviceState() == kDeviceStateStarting || app.GetDeviceState() == kDeviceStateWifiConfiguring) {
-                SwitchNetworkType();
+                SwitchNetworkType();   //切换4g和wifi
             } else {
                 if (custom_display_->IsVisible()) {
                     custom_display_->Hide();
@@ -567,15 +743,28 @@ private:
         camera_ = new Esp32Camera(config);
     }
 
+    //     void Initializeuart() {
+    //     // 初始化 UART
+    //     uart_config_t uart_config = {
+    //         .baud_rate = 9600,
+    //         .data_bits = UART_DATA_8_BITS,
+    //         .parity = UART_PARITY_DISABLE,
+    //         .stop_bits = UART_STOP_BITS_1,
+    //         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+    //     };
+    //     UartSender::Initialize(UART_NUM_1, uart_config); //初始化 UART 并创建单例
+    // }
+
 public:
     XINGZHI_CUBE_1_54_TFT_MATRIXBIT_ML307() :
         DualNetworkBoard(ML307_TX_PIN, ML307_RX_PIN, 4096),
         boot_button_(BOOT_BUTTON_GPIO) {
         InitializeGpio();
+        // Initializeuart();
         InitializePowerManager();
         InitializePowerSaveTimer();
         InitializeI2c();
-        InitializeAHT30Sensor();
+        InitializeAHT30Sensor();  
         InitializeSC7A20HSensor();
         InitializeSpi();
         InitializeButtons();

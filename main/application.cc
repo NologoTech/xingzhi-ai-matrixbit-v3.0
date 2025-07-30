@@ -11,6 +11,8 @@
 #include "assets/lang_config.h"
 #include "mcp_server.h"
 
+#include <driver/i2c_master.h>
+
 #if CONFIG_USE_AUDIO_PROCESSOR
 #include "afe_audio_processor.h"
 #else
@@ -25,6 +27,9 @@
 #include "no_wake_word.h"
 #endif
 
+#include <driver/i2c_master.h>
+#include "i2c_device.h"
+
 #include <cstring>
 #include <esp_log.h>
 #include <cJSON.h>
@@ -32,6 +37,8 @@
 #include <arpa/inet.h>
 
 #define TAG "Application"
+
+
 
 
 static const char* const STATE_STRINGS[] = {

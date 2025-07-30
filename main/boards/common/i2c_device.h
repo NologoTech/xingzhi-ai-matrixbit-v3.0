@@ -6,6 +6,7 @@
 class I2cDevice {
 public:
     I2cDevice(i2c_master_bus_handle_t i2c_bus, uint8_t addr);
+    
 
 protected:
     i2c_master_dev_handle_t i2c_device_;
