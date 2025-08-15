@@ -1,822 +1,766 @@
-#include "dual_network_board.h"
-#include "wifi_board.h"
-#include "audio_codecs/es8311_audio_codec.h"
-#include "display/lcd_display.h"
+    #include "dual_network_board.h"
+    #include "wifi_board.h"
+    #include "audio_codecs/es8311_audio_codec.h"
+    #include "display/lcd_display.h"
 
-#include "system_reset.h"
+    #include "system_reset.h"
 
-#include "application.h"
-#include "button.h"
-#include "config.h"
-#include "i2c_device.h"
-#include "iot/thing_manager.h"
+    #include "application.h"
+    #include "button.h"
+    #include "config.h"
+    #include "i2c_device.h"
+    #include "iot/thing_manager.h"
 
-#include <esp_log.h>
-#include <esp_lcd_panel_vendor.h>
-#include <driver/i2c_master.h>
-#include <driver/spi_common.h>
+    #include <esp_log.h>
+    #include <esp_lcd_panel_vendor.h>
+    #include <driver/i2c_master.h>
+    #include <driver/spi_common.h>
 
-#include "power_manager.h"
-#include "power_save_timer.h"
+    #include "power_manager.h"
+    #include "power_save_timer.h"
 
-#include "led/single_led.h"
-#include "assets/lang_config.h"
-#include <driver/rtc_io.h>
-#include <esp_sleep.h>
-#include <wifi_station.h>
-#include "esp32_camera.h"
-#include "rp2040iic.h"
-#include "aht30_sensor.h"
-#include "sc7a20h.h"
+    #include "led/single_led.h"
+    #include "assets/lang_config.h"
+    #include <driver/rtc_io.h>
+    #include <esp_sleep.h>
+    #include <wifi_station.h>
+    #include "esp32_camera.h"
+    #include "rp2040iic.h"
+    #include "aht30_sensor.h"
+    #include "sc7a20h.h"
 
-#include "uartcmdsend.h"
-
-
-#include "esp_vfs_fat.h"
-#include <string.h>
-#include <sys/unistd.h>
-#include <sys/stat.h>
-#include "esp_private/sdmmc_common.h"
+    #include "uartcmdsend.h"
 
 
-#define TAG "XINGZHI_CUBE_1_54_TFT_MATRIXBIT_ML307"
-
-LV_FONT_DECLARE(font_puhui_20_4);
-LV_FONT_DECLARE(font_awesome_20_4);
-LV_FONT_DECLARE(font_puhui_14_1);
-LV_FONT_DECLARE(font_awesome_14_1);
-
-
-// class Rp2040 : public I2cDevice {
-// public:
-// Rp2040(i2c_master_bus_handle_t i2c_bus, uint8_t addr) : I2cDevice(i2c_bus, addr) {
-
-//     // for (int i = 0; i < 4; i++) {
-//     //     uint8_t reg_addr = 0x01 + i;
-//     //     uint8_t reg_data = 0x01 + i;
-//     //     WriteReg(reg_addr, reg_data);
-//     //     printf("Write 0x%02X to register 0x%02X\n", reg_data, reg_addr);
-//     // }
-
-//         printf("rp2040 init success\n");
-//         uint8_t reg_25io_option = 1;
-//         WriteReg(0x66, reg_25io_option);
-//     // ReadMultipleRegs(0x01, 0x05);
+    #include "esp_vfs_fat.h"
+    #include <string.h>
+    #include <sys/unistd.h>
+    #include <sys/stat.h>
+    #include "esp_private/sdmmc_common.h"
 
 
-//  }
-//     void ready_IO()
-//     {
-//         uint8_t  Data_iicready =  ReadReg(0x01);
-//         printf("Data_iicready = 0x%02X\n", Data_iicready);
+    #define TAG "XINGZHI_CUBE_1_54_TFT_MATRIXBIT_ML307"
 
-//     }
-//         void io25_set_option()
-//         {
-//            WriteReg(0x66, 1);
-//         }
+    LV_FONT_DECLARE(font_puhui_20_4);
+    LV_FONT_DECLARE(font_awesome_20_4);
+    LV_FONT_DECLARE(font_puhui_14_1);
+    LV_FONT_DECLARE(font_awesome_14_1);
+    class CustomLcdDisplay : public SpiLcdDisplay {
+    private:
+        lv_obj_t* text_box_container; 
+        lv_obj_t* accel_label_; 
+        lv_obj_t* temp_hum_data_label_; 
+        lv_obj_t* sdcard_label_; 
+        bool is_visible_ = false; // 记录显示状态
 
-//         void ReadMultipleRegs(uint8_t start_addr, uint8_t end_addr) {
+        void CreateTextBox() {
+            DisplayLockGuard lock(this);
             
-//         if (start_addr > end_addr || end_addr > 0xFF) {
-//             printf("Invalid register range\n");
-//             return;
-//         }
-        
-//         printf("Reading registers from 0x%02X to 0x%02X:\n", start_addr, end_addr);
-        
-//         for (uint8_t addr = start_addr; addr <= end_addr; addr++) {
-//             uint8_t data = ReadReg(addr);
-//             printf("Register 0x%02X: 0x%02X\n", addr, data);
-//         }
-//     }
+            // 创建文本框区域容器，改为纵向布局
+            auto screen1 = lv_screen_active();
+            lv_obj_set_style_text_font(screen1, fonts_.text_font, 0);
+            lv_obj_set_style_text_color(screen1, current_theme_.text, 0);
+            lv_obj_set_style_bg_color(screen1, current_theme_.background, 0);
 
-//         // 基础位操作函数 - 指定寄存器地址版本  极性寄存器 0x06-0x0B
-//         void SetOutputStateAtAddr(uint8_t reg_addr, uint8_t bit, uint8_t level) {
-//             uint8_t data = ReadReg(reg_addr);
-//             data = (data & ~(1 << bit)) | (level << bit);
-//             WriteReg(reg_addr, data);
-//         }
+            text_box_container = lv_obj_create(screen1);
+            lv_obj_set_size(text_box_container, width_, height_ * 0.25); // 增加容器高度以容纳三行
+            lv_obj_align(text_box_container, LV_ALIGN_BOTTOM_MID, 0, -5);
+            lv_obj_set_style_bg_color(text_box_container, current_theme_.chat_background, 0);
+            lv_obj_set_style_border_width(text_box_container, 1, 0);
+            lv_obj_set_style_border_color(text_box_container, current_theme_.border, 0);
+            lv_obj_set_style_radius(text_box_container, 8, 0);
+            lv_obj_set_flex_flow(text_box_container, LV_FLEX_FLOW_COLUMN); // 改为纵向布局
+            lv_obj_set_style_pad_all(text_box_container, 5, 0);
+            lv_obj_set_scrollbar_mode(text_box_container, LV_SCROLLBAR_MODE_OFF);
+            lv_obj_add_flag(text_box_container, LV_OBJ_FLAG_HIDDEN);
 
-//     // 新增：合并读取两个寄存器为16位值
-//     uint16_t ReadCombinedRegs(uint8_t high_addr, uint8_t low_addr) {
-//         uint8_t high_byte = ReadReg(high_addr);
-//         uint8_t low_byte = ReadReg(low_addr);
-//         return (high_byte << 8) | low_byte;
-//     }
+            // 创建温湿度数据显示标签 - 第一行
+            temp_hum_data_label_ = lv_label_create(text_box_container);
+            lv_label_set_text(temp_hum_data_label_, "--.--°C --.--%");
+            lv_obj_set_style_text_color(temp_hum_data_label_, current_theme_.text, 0);
+            lv_obj_set_style_text_font(temp_hum_data_label_, &font_puhui_14_1, 0);
+            lv_obj_set_width(temp_hum_data_label_, width_ * 0.9); // 占满容器宽度
+            lv_obj_align(temp_hum_data_label_, LV_ALIGN_TOP_LEFT, 10, 5); // 顶部左侧
 
-//     // 新增：控制RGB灯
-//     void SetRGBColor(uint8_t red, uint8_t green, uint8_t blue) {
-//         WriteReg(0x12, red);    // 设置红色分量
-//         WriteReg(0x13, green);  // 设置绿色分量
-//         WriteReg(0x14, blue);   // 设置蓝色分量
-        
-//         printf("RGB颜色已设置 - 红: 0x%02X, 绿: 0x%02X, 蓝: 0x%02X\n", red, green, blue);
-//     }
+            // 创建加速度数据显示标签 - 第二行
+            accel_label_ = lv_label_create(text_box_container);
+            lv_label_set_text(accel_label_, "0.00 0.00 0.00");
+            lv_obj_set_style_text_color(accel_label_, current_theme_.text, 0);
+            lv_obj_set_style_text_font(accel_label_, &font_puhui_14_1, 0);
+            lv_obj_set_width(accel_label_, width_ * 0.9); // 占满容器宽度
+            lv_obj_align(accel_label_, LV_ALIGN_TOP_LEFT, 10, 5); // 顶部左侧，由布局自动排列
 
 
-//         //增加：读取芯片温度
-//     uint8_t GetTemperature() {
-//         return ReadReg(0x15); // 假设温度数据存储在0x15寄存器
-//     }
+            // 创建SD卡状态显示标签 - 第三行
+            sdcard_label_ = lv_label_create(text_box_container);
+            lv_label_set_text(sdcard_label_, "等待检测SD卡");
+            lv_obj_set_style_text_color(sdcard_label_, current_theme_.text, 0);
+            lv_obj_set_style_text_font(sdcard_label_, &font_puhui_14_1, 0);
+            lv_obj_set_width(sdcard_label_, width_ * 0.9); // 占满容器宽度
+            lv_obj_align(sdcard_label_, LV_ALIGN_TOP_LEFT, 10, 5); // 顶部左侧，由布局自动排列
 
-//       //读取光线值
-//           // 增加：读取光线强度
-//     uint8_t GetLightIntensity() {
-//         return ReadReg(0x16); // 假设光线数据存储在0x16寄存器
-//     }
-
-//     // 设置PWM输出
-//     bool SetPwmOutput(uint8_t channel, uint8_t value) {
-//         if (channel < 0 || channel > 16) {
-//             printf("PWM通道号超出范围 (0-16)\n");
-//             return false;
-//         }
-        
-//         if (value < 0 || value > 255) {
-//             printf("PWM值超出范围 (0-255)\n");
-//             return false;
-//         }
-        
-//         uint8_t reg_addr = 0x20 + channel;
-//         WriteReg(reg_addr, value);
-        
-//         printf("PWM通道 %d (寄存器0x%02X) 设置为: 0x%02X (%d%%)\n", 
-//                channel, reg_addr, value, (value * 100) / 255);
-        
-//         return true;
-//     }
-
-//     // 设置单个舵机角度
-// bool SetServoAngle(uint8_t servo_id, uint8_t angle) {
-//     if (servo_id < 1 || servo_id > 11) {
-//         printf("舵机ID超出范围 (1-11)\n");
-//         return false;
-//     }
-    
-//     if (angle < 0 || angle > 180) {
-//         printf("舵机角度超出范围 (0-180度)\n");
-//         return false;
-//     }
-    
-//     uint8_t reg_addr = 0x30 + servo_id; // 寄存器地址 0x31 到 0x41
-//     WriteReg(reg_addr, angle);
-    
-//     printf("舵机 %d (寄存器0x%02X) 设置为: %d 度\n", 
-//            servo_id, reg_addr, angle);
-    
-//     return true;
-// }
-
-// // 批量设置多个舵机角度
-// bool SetServoAngles(const std::vector<std::pair<uint8_t, uint8_t>>& servo_angles) {
-//     bool all_success = true;
-    
-//     for (const auto& pair : servo_angles) {
-//         uint8_t servo_id = pair.first;
-//         uint8_t angle = pair.second;
-        
-//         if (!SetServoAngle(servo_id, angle)) {
-//             all_success = false;
-//         }
-//     }
-    
-//     return all_success;
-// }
-
-// };
-
-
-class CustomLcdDisplay : public SpiLcdDisplay {
-private:
-    lv_obj_t* text_box_container; 
-    lv_obj_t* accel_label_; 
-    lv_obj_t* temp_hum_data_label_; 
-    lv_obj_t* sdcard_label_; 
-    bool is_visible_ = false; // 记录显示状态
-
-    void CreateTextBox() {
-        DisplayLockGuard lock(this);
-        
-        // 创建文本框区域容器，改为纵向布局
-        auto screen1 = lv_screen_active();
-        lv_obj_set_style_text_font(screen1, fonts_.text_font, 0);
-        lv_obj_set_style_text_color(screen1, current_theme_.text, 0);
-        lv_obj_set_style_bg_color(screen1, current_theme_.background, 0);
-
-        text_box_container = lv_obj_create(screen1);
-        lv_obj_set_size(text_box_container, width_, height_ * 0.25); // 增加容器高度以容纳三行
-        lv_obj_align(text_box_container, LV_ALIGN_BOTTOM_MID, 0, -5);
-        lv_obj_set_style_bg_color(text_box_container, current_theme_.chat_background, 0);
-        lv_obj_set_style_border_width(text_box_container, 1, 0);
-        lv_obj_set_style_border_color(text_box_container, current_theme_.border, 0);
-        lv_obj_set_style_radius(text_box_container, 8, 0);
-        lv_obj_set_flex_flow(text_box_container, LV_FLEX_FLOW_COLUMN); // 改为纵向布局
-        lv_obj_set_style_pad_all(text_box_container, 5, 0);
-        lv_obj_set_scrollbar_mode(text_box_container, LV_SCROLLBAR_MODE_OFF);
-        lv_obj_add_flag(text_box_container, LV_OBJ_FLAG_HIDDEN);
-
-        // 创建温湿度数据显示标签 - 第一行
-        temp_hum_data_label_ = lv_label_create(text_box_container);
-        lv_label_set_text(temp_hum_data_label_, "--.--°C --.--%");
-        lv_obj_set_style_text_color(temp_hum_data_label_, current_theme_.text, 0);
-        lv_obj_set_style_text_font(temp_hum_data_label_, &font_puhui_14_1, 0);
-        lv_obj_set_width(temp_hum_data_label_, width_ * 0.9); // 占满容器宽度
-        lv_obj_align(temp_hum_data_label_, LV_ALIGN_TOP_LEFT, 10, 5); // 顶部左侧
-
-        // 创建加速度数据显示标签 - 第二行
-        accel_label_ = lv_label_create(text_box_container);
-        lv_label_set_text(accel_label_, "0.00 0.00 0.00");
-        lv_obj_set_style_text_color(accel_label_, current_theme_.text, 0);
-        lv_obj_set_style_text_font(accel_label_, &font_puhui_14_1, 0);
-        lv_obj_set_width(accel_label_, width_ * 0.9); // 占满容器宽度
-        lv_obj_align(accel_label_, LV_ALIGN_TOP_LEFT, 10, 5); // 顶部左侧，由布局自动排列
-
-
-        // 创建SD卡状态显示标签 - 第三行
-        sdcard_label_ = lv_label_create(text_box_container);
-        lv_label_set_text(sdcard_label_, "等待检测SD卡");
-        lv_obj_set_style_text_color(sdcard_label_, current_theme_.text, 0);
-        lv_obj_set_style_text_font(sdcard_label_, &font_puhui_14_1, 0);
-        lv_obj_set_width(sdcard_label_, width_ * 0.9); // 占满容器宽度
-        lv_obj_align(sdcard_label_, LV_ALIGN_TOP_LEFT, 10, 5); // 顶部左侧，由布局自动排列
-
-        // 为容器设置内边距，使三行之间有间隔
-        lv_obj_set_style_pad_row(text_box_container, 1, 0); // 行间距
-    }
-
-public:
-    CustomLcdDisplay(esp_lcd_panel_io_handle_t io_handle, 
-                    esp_lcd_panel_handle_t panel_handle,
-                    int width,
-                    int height,
-                    int offset_x,
-                    int offset_y,
-                    bool mirror_x,
-                    bool mirror_y,
-                    bool swap_xy) 
-        : SpiLcdDisplay(io_handle, panel_handle,
-                    width, height, offset_x, offset_y, mirror_x, mirror_y, swap_xy,
-                    {
-                        .text_font = &font_puhui_20_4,
-                        .icon_font = &font_awesome_20_4,
-                        .emoji_font = font_emoji_64_init(),
-                    }) {
-        DisplayLockGuard lock(this);
-        
-        // 在父类UI初始化后添加文本框
-        if (container_ != nullptr) {
-            CreateTextBox();
+            // 为容器设置内边距，使三行之间有间隔
+            lv_obj_set_style_pad_row(text_box_container, 1, 0); // 行间距
         }
-    }
-    
-    // 更新加速度显示
-    void SetAccelerationText(const char* text) {
-        DisplayLockGuard lock(this);
-        if (accel_label_ != nullptr) {
-            lv_label_set_text(accel_label_, text);
-        }
-    }
 
-    // 更新温湿度显示
-    void SetAht30SensoryText(float temp, float hum) {
-        DisplayLockGuard lock(this);
-        if (temp_hum_data_label_ != nullptr) {
-            char buffer[30];
-            sprintf(buffer, "%.2f°C %.2f%%", temp, hum);
-            lv_label_set_text(temp_hum_data_label_, buffer);
-        }
-    }
-
-    // 更新sd卡显示
-    void SetSDcardText(const char* text) {
-        DisplayLockGuard lock(this);
-        if (sdcard_label_ != nullptr) {
-            lv_label_set_text(sdcard_label_, text);
-        }
-    }
-
-    // 显示传感器信息
-    void Show() {
-        DisplayLockGuard lock(this);
-        lv_obj_clear_flag(text_box_container, LV_OBJ_FLAG_HIDDEN);
-        is_visible_ = true;
-    }
-    
-    // 隐藏传感器信息
-    void Hide() {
-        DisplayLockGuard lock(this);
-        lv_obj_add_flag(text_box_container, LV_OBJ_FLAG_HIDDEN);
-        is_visible_ = false;
-    }
-
-    // 查询显示状态
-    bool IsVisible() const {
-        return is_visible_;
-    }
-
-};
-
-class XINGZHI_CUBE_1_54_TFT_MATRIXBIT_ML307 : public DualNetworkBoard {
-private:
-    i2c_master_bus_handle_t i2c_bus_;
-    Button boot_button_;
-    SpiLcdDisplay* display_;
-    CustomLcdDisplay* custom_display_;
-    PowerSaveTimer* power_save_timer_;
-    PowerManager* power_manager_;
-    esp_lcd_panel_io_handle_t panel_io_ = nullptr;
-    esp_lcd_panel_handle_t panel_ = nullptr;
-    Esp32Camera* camera_;
-    Aht30Sensor* aht30_sensor_;
-    Sc7a20hSensor* sc7a20h_sensor_;
-    Rp2040* Rp2040_;
-
-
-    void InitializePowerManager() {
-        power_manager_ = new PowerManager(POWER_USB_IN);//USB是否插入
-        power_manager_->OnChargingStatusChanged([this](bool is_charging) {
-            if (is_charging) {
-                power_save_timer_->SetEnabled(false);
-            } else {
-                power_save_timer_->SetEnabled(true);
+    public:
+        CustomLcdDisplay(esp_lcd_panel_io_handle_t io_handle, 
+                        esp_lcd_panel_handle_t panel_handle,
+                        int width,
+                        int height,
+                        int offset_x,
+                        int offset_y,
+                        bool mirror_x,
+                        bool mirror_y,
+                        bool swap_xy) 
+            : SpiLcdDisplay(io_handle, panel_handle,
+                        width, height, offset_x, offset_y, mirror_x, mirror_y, swap_xy,
+                        {
+                            .text_font = &font_puhui_20_4,
+                            .icon_font = &font_awesome_20_4,
+                            .emoji_font = font_emoji_64_init(),
+                        }) {
+            DisplayLockGuard lock(this);
+            
+            // 在父类UI初始化后添加文本框
+            if (container_ != nullptr) {
+                CreateTextBox();
             }
-        });
-    }
-
-    void InitializePowerSaveTimer() {
-        power_save_timer_ = new PowerSaveTimer(-1, 60, 300);
-        power_save_timer_->OnEnterSleepMode([this]() {
-            ESP_LOGI(TAG, "Enabling sleep mode");
-            display_->SetChatMessage("system", "");
-            display_->SetEmotion("sleepy");
-        });
-        power_save_timer_->OnExitSleepMode([this]() {
-            display_->SetChatMessage("system", "");
-            display_->SetEmotion("neutral");
-        });
-        power_save_timer_->OnShutdownRequest([this]() {
-            ESP_LOGI(TAG, "Shutting down");
-            rtc_gpio_set_level(NETWORK_MODULE_POWER_IN, 0);
-            // 启用保持功能，确保睡眠期间电平不变
-            rtc_gpio_hold_en(NETWORK_MODULE_POWER_IN);
-            esp_lcd_panel_disp_on_off(panel_, false); //关闭显示
-            esp_deep_sleep_start();
-        });
-        power_save_timer_->SetEnabled(true);
-    }
-
-
-
-        // 添加一个标志位来记录扫描结果
-    esp_err_t err;
-    bool is_device_41_found = false;
-    bool is_device_18_found = false;
-
-
-    void InitializeI2c() {
-        // Initialize I2C peripheral
-        i2c_master_bus_config_t i2c_bus_cfg = {
-            .i2c_port = (i2c_port_t)1,
-            // .i2c_port = I2C_NUM_0,
-            .sda_io_num = AUDIO_CODEC_I2C_SDA_PIN,
-            .scl_io_num = AUDIO_CODEC_I2C_SCL_PIN,
-            .clk_source = I2C_CLK_SRC_DEFAULT,
-            .glitch_ignore_cnt = 7,
-            .intr_priority = 0,
-            .trans_queue_depth = 0,
-            .flags = {
-                .enable_internal_pullup = 1,
-            },
-        };
-        ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_bus_cfg, &i2c_bus_));
-
-        for (uint8_t addr = 1; addr < 127; addr++) {  //扫描iic驱动地址
-            err = i2c_master_probe(i2c_bus_, addr, 100);
-            if (err == ESP_OK) {
-                ESP_LOGI(TAG, "Device found at address 0x%02X", addr);
-                if (addr == 0x41) {
-                    is_device_41_found = true;
-                }
-                if (addr == 0x18) {
-                    is_device_18_found = true;
-                }
+        }
+        
+        // 更新加速度显示
+        void SetAccelerationText(const char* text) {
+            DisplayLockGuard lock(this);
+            if (accel_label_ != nullptr) {
+                lv_label_set_text(accel_label_, text);
             }
         }
 
-        // Initialize PCA9557
-         Rp2040_ = new Rp2040(i2c_bus_, 0x55); //oycation
-         err = Rp2040_->StartReading(3000);
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to initialize AHT30 sensor (err=0x%x)", err);
-            return;
-        }
-
-
-    }
-
-    void InitializeAHT30Sensor() {
-        uint8_t reciving = 0;
-        uint8_t recivingligh = 0;
-        // 初始化传感器
-        aht30_sensor_ = new Aht30Sensor(i2c_bus_);
-        esp_err_t err = aht30_sensor_->Initialize();
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to initialize AHT30 sensor (err=0x%x)", err);
-            return;
-        }
-
-        // 设置温湿度数据回调
-        aht30_sensor_->SetAht30SensorCallback([this](float temp, float hum) {
-            UpdateAht30SensorDisplay(temp, hum);
-        });
-
-        // 启动周期性读取（每秒一次）
-        err = aht30_sensor_->StartReading(3000);
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to start periodic readings (err=0x%x)", err);
-        }
-
-
-            //      Rp2040_->SetRGBColor(10, 10, 10);
-            //      Rp2040_->ready_IO();  // 修正：通过Rp2040_对象调用 重启问题
-            //      Rp2040_->SetBrightness(100);
-            //      Rp2040_->ReadMultipleRegs(0x01,0x05); //读取数据
-                //  reciving = Rp2040_->GetTemperature();
-                //  recivingligh = Rp2040_->GetLightIntensity();
-                //  Rp2040_->SetPwmOutput(1, 254);
-                    // Rp2040_->SetServoAngle(1, 90);
-                //  Rp2040_->SetServoAngles({ {2, 90}, {3, 90}, {4, 90}, {5, 90}, {6, 90}, {7, 90}, {8, 90}, {9, 90}, {10, 90}, {11, 90} });
-                //  ESP_LOGE("", "reciving:%d,recivingligh:%d", reciving,recivingligh); 
-
-                 // 读取0x0C(高8位)和0x0D(低8位)合并为16位值
-                //  uint16_t combinedValue = Rp2040_->ReadCombinedRegs(0x0C, 0x0D);
-                //  printf("Combined value: 0x%04X\n", combinedValue);
-    }
-
-    // 更新温湿度显示
-    void UpdateAht30SensorDisplay(float temp, float hum) {
-        if (custom_display_) {
-            custom_display_->SetAht30SensoryText(temp, hum);
-        }
-    }
-
-    void InitializeSC7A20HSensor() {
-        // 初始化传感器
-        sc7a20h_sensor_ = new Sc7a20hSensor(i2c_bus_);
-        esp_err_t err = sc7a20h_sensor_->Initialize();
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "初始化SC7A20H传感器失败 (err=0x%x)", err);
-            return;
-        }
-
-        // 设置加速度数据回调
-        sc7a20h_sensor_->SetAccelerationCallback([this](float x, float y, float z) {
-            UpdateAccelerationDisplay(x, y, z);
-        });
-
-        // 启动周期性读取（每100ms一次）
-        err = sc7a20h_sensor_->StartReading(3000);
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "启动周期性读取失败 (err=0x%x)", err);
-        }
-    }
-
-    // 更新加速度显示
-    void UpdateAccelerationDisplay(float x, float y, float z) {
-        if (custom_display_) {
-            char buffer[50];
-            sprintf(buffer, "X:%.2f Y:%.2f Z:%.2f", x, y, z);
-            custom_display_->SetAccelerationText(buffer);
-        }
-    }
-
-    void InitializeSpi() {
-        spi_bus_config_t buscfg = {};
-        buscfg.mosi_io_num = DISPLAY_SDA;
-        buscfg.miso_io_num = GPIO_NUM_NC;
-        buscfg.sclk_io_num = DISPLAY_SCL;
-        buscfg.quadwp_io_num = GPIO_NUM_NC;
-        buscfg.quadhd_io_num = GPIO_NUM_NC;
-        buscfg.max_transfer_sz = DISPLAY_WIDTH * DISPLAY_HEIGHT * sizeof(uint16_t);
-        ESP_ERROR_CHECK(spi_bus_initialize(DISPLAY_SPI_HOST, &buscfg, SPI_DMA_CH_AUTO));
-    }
-
-    void InitializeSDcardSpi() {
-        // 定义挂载点路径
-        // const char* mount_point = "/sdcard";
-        
-        // 初始化SPI总线配置
-        spi_bus_config_t bus_cnf = {
-            .mosi_io_num = SDCARD_PIN_MOSI,
-            .miso_io_num = SDCARD_PIN_MISO,
-            .sclk_io_num = SDCARD_PIN_CLK,
-            .quadwp_io_num = -1,
-            .quadhd_io_num = -1,
-            .max_transfer_sz = 400000,
-        };
-
-        // 初始化SPI总线
-        esp_err_t err = spi_bus_initialize(SDCARD_SPI_HOST, &bus_cnf, SPI_DMA_CH_AUTO);
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "SPI总线初始化失败: %s", esp_err_to_name(err));
-            return;
-        }
-        
-        // 配置SD卡设备
-        static sdspi_device_config_t slot_cnf = {
-            .host_id = SDCARD_SPI_HOST,
-            .gpio_cs = SDCARD_PIN_CS,
-            .gpio_cd = SDSPI_SLOT_NO_CD,
-            .gpio_wp = GPIO_NUM_NC,
-            .gpio_int = GPIO_NUM_NC,
-        };
-        
-        // 配置FAT文件系统挂载选项
-        esp_vfs_fat_sdmmc_mount_config_t mount_cnf = {
-            .format_if_mount_failed = false,
-            .max_files = 5,
-            .allocation_unit_size = 16 * 1024,
-        };
-        
-        // 声明SD卡对象
-        sdmmc_card_t* card = NULL;
-        
-        // 先将宏结果赋值给变量，再取地址
-        sdmmc_host_t host = SDSPI_HOST_DEFAULT();
-        err = esp_vfs_fat_sdspi_mount(MOUNT_POINT, &host, &slot_cnf, &mount_cnf, &card);
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "SD卡挂载失败: %s", esp_err_to_name(err));
-            custom_display_->SetSDcardText("SD卡挂载失败");
-            return;
-        } else if (err == ESP_OK) {
-            ESP_LOGI(TAG, "SD卡挂载成功");
-            custom_display_->SetSDcardText("SD卡挂载成功");
-        }
-        
-        // 打印SD卡信息
-        // #ifdef CONFIG_SDMMC_USE_CUSTOM_PINS
-        sdmmc_card_print_info(stdout, card);
-
-    
-        // // Use POSIX and C standard library functions to work with files.
-
-        // // First create a file.
-        // const char *file_hello = MOUNT_POINT"/hello.txt";
-
-        // ESP_LOGI(TAG, "Opening file %s", file_hello);
-        // FILE *f = fopen(file_hello, "w");
-        // if (f == NULL) {
-        //     ESP_LOGE(TAG, "Failed to open file for writing");
-        //     return;
-        // }
-        // fprintf(f, "Hello %s!\n", card->cid.name);
-        // fclose(f);
-        // ESP_LOGI(TAG, "File written");
-
-        // const char *file_foo = MOUNT_POINT"/foo.txt";
-
-        // // Check if destination file exists before renaming
-        // struct stat st;
-        // if (stat(file_foo, &st) == 0) {
-        //     // Delete it if it exists
-        //     unlink(file_foo);
-        // }
-
-        // // Rename original file
-        // ESP_LOGI(TAG, "Renaming file %s to %s", file_hello, file_foo);
-        // if (rename(file_hello, file_foo) != 0) {
-        //     ESP_LOGE(TAG, "Rename failed");
-        //     return;
-        // }
-
-        // // Open renamed file for reading
-        // ESP_LOGI(TAG, "Reading file %s", file_foo);
-        // f = fopen(file_foo, "r");
-        // if (f == NULL) {
-        //     ESP_LOGE(TAG, "Failed to open file for reading");
-        //     return;
-        // }
-
-        // // Read a line from file
-        // char line[64];
-        // fgets(line, sizeof(line), f);
-        // fclose(f);
-
-        // // Strip newline
-        // char *pos = strchr(line, '\n');
-        // if (pos) {
-        //     *pos = '\0';
-        // }
-        // ESP_LOGI(TAG, "Read from file: '%s'", line);
-
-        // // All done, unmount partition and disable SPI peripheral
-        // esp_vfs_fat_sdcard_unmount(MOUNT_POINT, card);
-        // ESP_LOGI(TAG, "Card unmounted");
-
-        // //deinitialize the bus after all devices are removed
-        // spi_bus_free(SDCARD_SPI_HOST);
-    }
-
-    void InitializeButtons() {
-        boot_button_.OnClick([this]() {
-            power_save_timer_->WakeUp();
-            auto& app = Application::GetInstance();
-            if (GetNetworkType() == NetworkType::WIFI) {
-                if (app.GetDeviceState() == kDeviceStateStarting && !WifiStation::GetInstance().IsConnected()) {
-                    // cast to WifiBoard
-                    auto& wifi_board = static_cast<WifiBoard&>(GetCurrentBoard());
-                    wifi_board.ResetWifiConfiguration();
-                }
+        // 更新温湿度显示
+        void SetAht30SensoryText(float temp, float hum) {
+            DisplayLockGuard lock(this);
+            if (temp_hum_data_label_ != nullptr) {
+                char buffer[30];
+                sprintf(buffer, "%.2f°C %.2f%%", temp, hum);
+                lv_label_set_text(temp_hum_data_label_, buffer);
             }
-            app.ToggleChatState();
-        });
+        }
 
-        boot_button_.OnDoubleClick([this]() {
-            auto& app = Application::GetInstance();
-            if (app.GetDeviceState() == kDeviceStateStarting || app.GetDeviceState() == kDeviceStateWifiConfiguring) {
-                SwitchNetworkType();   //切换4g和wifi
-            } else {
-                if (custom_display_->IsVisible()) {
-                    custom_display_->Hide();
-                    ESP_LOGI(TAG,"隐藏传感器信息");
+        // 更新sd卡显示
+        void SetSDcardText(const char* text) {
+            DisplayLockGuard lock(this);
+            if (sdcard_label_ != nullptr) {
+                lv_label_set_text(sdcard_label_, text);
+            }
+        }
+
+        // 显示传感器信息
+        void Show() {
+            DisplayLockGuard lock(this);
+            lv_obj_clear_flag(text_box_container, LV_OBJ_FLAG_HIDDEN);
+            is_visible_ = true;
+        }
+        
+        // 隐藏传感器信息
+        void Hide() {
+            DisplayLockGuard lock(this);
+            lv_obj_add_flag(text_box_container, LV_OBJ_FLAG_HIDDEN);
+            is_visible_ = false;
+        }
+
+        // 查询显示状态
+        bool IsVisible() const {
+            return is_visible_;
+        }
+
+    };
+
+    class XINGZHI_CUBE_1_54_TFT_MATRIXBIT_ML307 : public DualNetworkBoard {
+    private:
+        i2c_master_bus_handle_t i2c_bus_;
+        Button boot_button_;
+        SpiLcdDisplay* display_;
+        CustomLcdDisplay* custom_display_;
+        PowerSaveTimer* power_save_timer_;
+        PowerManager* power_manager_;
+        esp_lcd_panel_io_handle_t panel_io_ = nullptr;
+        esp_lcd_panel_handle_t panel_ = nullptr;
+        Esp32Camera* camera_;
+        Aht30Sensor* aht30_sensor_;
+        Sc7a20hSensor* sc7a20h_sensor_;
+        Rp2040* Rp2040_;
+
+
+        void InitializePowerManager() {
+            power_manager_ = new PowerManager(POWER_USB_IN);//USB是否插入
+            power_manager_->OnChargingStatusChanged([this](bool is_charging) {
+                if (is_charging) {
+                    power_save_timer_->SetEnabled(false);
                 } else {
-                    custom_display_->Show();
-                    ESP_LOGI(TAG,"显示传感器信息");
-                } 
-            }
-        });
+                    power_save_timer_->SetEnabled(true);
+                }
+            });
 
-        // boot_button_.OnDoubleClick([this]() {
-        //     ESP_LOGE(TAG,"双击");
-        //     power_save_timer_->WakeUp();
-        //     auto& app = Application::GetInstance();
-        //     // app.ResetDecoder();
-        //     if (app.GetDeviceState() == kDeviceStateIdle)
-        //     {  
-        //         ESP_LOGE(TAG,"双击事件触发");
-        //         // app.ResetDecoder();
-        //         app.WakeWordInvoke("音量调整到一百，另外你通过摄像机看到了什么");
-        //         vTaskDelay(pdMS_TO_TICKS(500));
+        }
 
+        void InitializePowerSaveTimer() {
+            power_save_timer_ = new PowerSaveTimer(-1, 60, 300);
+            power_save_timer_->OnEnterSleepMode([this]() {
+                ESP_LOGI(TAG, "Enabling sleep mode");
+                display_->SetChatMessage("system", "");
+                display_->SetEmotion("sleepy");
+            });
+            power_save_timer_->OnExitSleepMode([this]() {
+                display_->SetChatMessage("system", "");
+                display_->SetEmotion("neutral");
+            });
+            power_save_timer_->OnShutdownRequest([this]() {
+                ESP_LOGI(TAG, "Shutting down");
+                rtc_gpio_set_level(NETWORK_MODULE_POWER_IN, 0);
+                // 启用保持功能，确保睡眠期间电平不变
+                rtc_gpio_hold_en(NETWORK_MODULE_POWER_IN);
+                esp_lcd_panel_disp_on_off(panel_, false); //关闭显示
+                esp_deep_sleep_start();
+            });
+            power_save_timer_->SetEnabled(true);
+        }
+
+
+
+            // 添加一个标志位来记录扫描结果
+        esp_err_t err;
+        bool is_device_41_found = false;
+        bool is_device_18_found = false;
+
+
+        // void InitializeI2c() {
+        //     // Initialize I2C peripheral
+        //     i2c_master_bus_config_t i2c_bus_cfg = {
+        //         .i2c_port = (i2c_port_t)1,
+        //         // .i2c_port = I2C_NUM_0,
+        //         .sda_io_num = AUDIO_CODEC_I2C_SDA_PIN,
+        //         .scl_io_num = AUDIO_CODEC_I2C_SCL_PIN,
+        //         .clk_source = I2C_CLK_SRC_DEFAULT,
+        //         .glitch_ignore_cnt = 7,
+        //         .intr_priority = 0,
+        //         .trans_queue_depth = 0,
+        //         .flags = {
+        //             .enable_internal_pullup = 1,
+        //         },
+        //     };
+        //     ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_bus_cfg, &i2c_bus_));
+
+        //     // for (uint8_t addr = 1; addr < 127; addr++) {  //扫描iic驱动地址
+        //     //     err = i2c_master_probe(i2c_bus_, addr, 100);
+        //     //     if (err == ESP_OK) {
+        //     //         ESP_LOGI(TAG, "Device found at address 0x%02X", addr);
+        //     //         if (addr == 0x41) {
+        //     //             is_device_41_found = true;
+        //     //         }
+        //     //         if (addr == 0x18) {
+        //     //             is_device_18_found = true;
+        //     //         }
+        //     //     }
+        //     // }
+
+        //     // 简单的I2C扫描代码片段
+        //     for (uint8_t addr = 1; addr < 127; addr++) {
+        //         esp_err_t err = i2c_master_probe(i2c_bus, addr, 1000);
+        //         if (err == ESP_OK) {
+        //             printf("Found device at 0x%02x\n", addr);
+        //         }
         //     }
-        // });
-    }
 
-    void InitializeSt7789Display() {
-        ESP_LOGD(TAG, "Install panel IO");
-        esp_lcd_panel_io_spi_config_t io_config = {};
-        io_config.cs_gpio_num = DISPLAY_CS;
-        io_config.dc_gpio_num = DISPLAY_DC;
-        io_config.spi_mode = 3;
-        io_config.pclk_hz = 80 * 1000 * 1000;
-        io_config.trans_queue_depth = 10;
-        io_config.lcd_cmd_bits = 8;
-        io_config.lcd_param_bits = 8;
-        ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi(DISPLAY_SPI_HOST, &io_config, &panel_io_));
+        //     // 初始化AHT30传感器        
 
-        ESP_LOGD(TAG, "Install LCD driver");
-        esp_lcd_panel_dev_config_t panel_config = {};
-        panel_config.reset_gpio_num = DISPLAY_RES;
-        panel_config.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB;
-        panel_config.bits_per_pixel = 16;
+        //     // Initialize PCA9557
 
-        ESP_ERROR_CHECK(esp_lcd_new_panel_st7789(panel_io_, &panel_config, &panel_));
-        ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_));
-        ESP_ERROR_CHECK(esp_lcd_panel_init(panel_));
-        ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel_, DISPLAY_SWAP_XY));
-        ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel_, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y));
-        ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel_, true));
+        //     Rp2040_ = Rp2040::getInstance(i2c_bus_, 0x55);
+        //     //  auto rp2040 = Rp2040::getInstance();
+        //     //  rp2040->SetServoAngle(3, 180);
+        //         // rp2040->SetRGBColor(10, 10, 10);
 
-        custom_display_ = new CustomLcdDisplay(panel_io_, panel_, DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y, 
-            DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);
-        display_ = custom_display_;
-    }
+        //     err = Rp2040_->StartReading(3000);
+        //     if (err != ESP_OK) {
+        //         ESP_LOGE(TAG, "Failed to initialize AHT30 sensor (err=0x%x)", err);
+        //         return;
+        //     }
 
-    void InitializeIot() {
-        auto& thing_manager = iot::ThingManager::GetInstance();
-        thing_manager.AddThing(iot::CreateThing("Speaker"));
-        thing_manager.AddThing(iot::CreateThing("Screen"));
-        thing_manager.AddThing(iot::CreateThing("Battery"));
-    }
 
-    void InitializeGpio() {
-        gpio_config_t zxc = {};
-        zxc.intr_type = GPIO_INTR_DISABLE;
-        zxc.mode = GPIO_MODE_OUTPUT;
-        zxc.pin_bit_mask = (1ULL << GPIO_NUM_11);
-        zxc.pull_down_en = GPIO_PULLDOWN_DISABLE; 
-        zxc.pull_up_en = GPIO_PULLUP_DISABLE;     
-        gpio_config(&zxc);
-        gpio_set_level(GPIO_NUM_11, 1); 
-    }
+        // }
 
-    void InitializeCamera() {
-        camera_config_t config = {};
-        config.ledc_channel = LEDC_CHANNEL_2;  // LEDC通道选择  用于生成XCLK时钟 但是S3不用
-        config.ledc_timer = LEDC_TIMER_2; // LEDC timer选择  用于生成XCLK时钟 但是S3不用
-        config.pin_d0 = CAMERA_PIN_D0;
-        config.pin_d1 = CAMERA_PIN_D1;
-        config.pin_d2 = CAMERA_PIN_D2;
-        config.pin_d3 = CAMERA_PIN_D3;
-        config.pin_d4 = CAMERA_PIN_D4;
-        config.pin_d5 = CAMERA_PIN_D5;
-        config.pin_d6 = CAMERA_PIN_D6;
-        config.pin_d7 = CAMERA_PIN_D7;
-        config.pin_xclk = CAMERA_PIN_XCLK;
-        config.pin_pclk = CAMERA_PIN_PCLK;
-        config.pin_vsync = CAMERA_PIN_VSYNC;
-        config.pin_href = CAMERA_PIN_HREF;
-        config.pin_sccb_sda = -1;   // 这里写-1 表示使用已经初始化的I2C接口
-        config.pin_sccb_scl = CAMERA_PIN_SIOC;
-        config.sccb_i2c_port = 1;
-        config.pin_pwdn = CAMERA_PIN_PWDN;
-        config.pin_reset = CAMERA_PIN_RESET;
-        config.xclk_freq_hz = XCLK_FREQ_HZ;
-        config.pixel_format = PIXFORMAT_RGB565;
-        config.frame_size = FRAMESIZE_VGA;
-        config.jpeg_quality = 12;
-        config.fb_count = 1;
-        config.fb_location = CAMERA_FB_IN_PSRAM;
-        config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
 
-        camera_ = new Esp32Camera(config);
-    }
+        void InitializeI2c() {
+            // 初始化I2C外设
+            i2c_master_bus_config_t i2c_bus_cfg = {
+                .i2c_port = I2C_NUM_1,  // 明确使用I2C_NUM_1宏定义，更易读
+                .sda_io_num = AUDIO_CODEC_I2C_SDA_PIN,
+                .scl_io_num = AUDIO_CODEC_I2C_SCL_PIN,
+                .clk_source = I2C_CLK_SRC_DEFAULT,
+                .glitch_ignore_cnt = 7,
+                .intr_priority = 0,
+                .trans_queue_depth = 0,
+                .flags = {
+                    .enable_internal_pullup = 1,  // 启用内部上拉电阻
+                },
+            };
+            
+            
+            // 创建I2C主总线，使用更灵活的错误处理
+            esp_err_t err = i2c_new_master_bus(&i2c_bus_cfg, &i2c_bus_);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to create I2C master bus (err=0x%x)", err);
+                return;  // 总线创建失败，直接返回
+            }
 
-    //     void Initializeuart() {
-    //     // 初始化 UART
-    //     uart_config_t uart_config = {
-    //         .baud_rate = 9600,
-    //         .data_bits = UART_DATA_8_BITS,
-    //         .parity = UART_PARITY_DISABLE,
-    //         .stop_bits = UART_STOP_BITS_1,
-    //         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-    //     };
-    //     UartSender::Initialize(UART_NUM_1, uart_config); //初始化 UART 并创建单例
-    // }
+            // 初始化Rp2040设备（地址0x55）
+            Rp2040_ = Rp2040::getInstance(i2c_bus_, 0x55);
+            if (!Rp2040_) {  // 检查实例是否创建成功
+                ESP_LOGE(TAG, "Failed to get Rp2040 instance");
+                return;
+            }
 
-public:
-    XINGZHI_CUBE_1_54_TFT_MATRIXBIT_ML307() :
-        DualNetworkBoard(ML307_TX_PIN, ML307_RX_PIN, 4096),
-        boot_button_(BOOT_BUTTON_GPIO) {
-        InitializeGpio();
-        // Initializeuart();
-        InitializePowerManager();
-        InitializePowerSaveTimer();
-        InitializeI2c();
-        InitializeAHT30Sensor();  
-        InitializeSC7A20HSensor();
-        InitializeSpi();
-        InitializeButtons();
-        InitializeSt7789Display();  
-        InitializeSDcardSpi();
-        InitializeIot();
-        InitializeCamera();
-    }
+            // I2C设备扫描（修正变量名，优化超时时间）
+            bool is_device_41_found = false;
+            bool is_device_18_found = false;
+            for (uint8_t addr = 1; addr < 127; addr++) {
+                err = i2c_master_probe(i2c_bus_, addr, 100);  // 超时时间改为100ms
+                if (err == ESP_OK) {
+                    ESP_LOGI(TAG, "Found device at address 0x%02X", addr);  // 使用ESP日志宏，更规范
+                    // 恢复设备地址检查逻辑
+                    if (addr == 0x41) {
+                        is_device_41_found = true;
+                    }
+                    if (addr == 0x18) {
+                        is_device_18_found = true;
+                    }
+                }
+            }
 
-    virtual AudioCodec* GetAudioCodec() override {
-        static Es8311AudioCodec audio_codec(
-            i2c_bus_, 
-            I2C_NUM_0,
-            AUDIO_INPUT_SAMPLE_RATE, 
-            AUDIO_OUTPUT_SAMPLE_RATE,
-            AUDIO_I2S_GPIO_MCLK, 
-            AUDIO_I2S_GPIO_BCLK, 
-            AUDIO_I2S_GPIO_WS, 
-            AUDIO_I2S_GPIO_DOUT, 
-            AUDIO_I2S_GPIO_DIN,
-            AUDIO_CODEC_PA_PIN, 
-            AUDIO_CODEC_ES8311_ADDR, 
-            AUDIO_INPUT_REFERENCE);
-            return &audio_codec;
-    }
+            
+            // else
+            // {
+            //     ESP_LOGE(TAG, "get Rp2040 instance");
+            //     Rp2040_->io25_set_option();
 
-    virtual Display* GetDisplay() override {
-        return display_;
-    }
+            // }
+            // 启动Rp2040数据读取
+            err = Rp2040_->StartReading(3000);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "Rp2040 start reading failed (err=0x%x)", err);
+                return;
+            }
 
-    virtual bool GetBatteryLevel(int& level, bool& charging, bool& discharging) override {
-        static bool last_discharging = false;
-        charging = power_manager_->IsCharging();
-        discharging = power_manager_->IsDischarging();
-        if (discharging != last_discharging) {
-            power_save_timer_->SetEnabled(discharging);
-            last_discharging = discharging;
+            ESP_LOGI(TAG, "I2C initialization completed successfully");
         }
-        level = power_manager_->GetBatteryLevel();
-        return true;
-    }
 
-    virtual void SetPowerSaveMode(bool enabled) override {
-        if (!enabled) {
-            power_save_timer_->WakeUp();
+        void InitializeAHT30Sensor() {
+            uint8_t reciving = 0;
+            uint8_t recivingligh = 0;
+            // 初始化传感器
+            aht30_sensor_ = new Aht30Sensor(i2c_bus_);
+            esp_err_t err = aht30_sensor_->Initialize();
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to initialize AHT30 sensor (err=0x%x)", err);
+                return;
+            }
+
+            // 设置温湿度数据回调
+            aht30_sensor_->SetAht30SensorCallback([this](float temp, float hum) {
+                UpdateAht30SensorDisplay(temp, hum);
+            });
+
+            // 启动周期性读取（每秒一次）
+            err = aht30_sensor_->StartReading(3000);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to start periodic readings (err=0x%x)", err);
+            }
+
+
+                //      Rp2040_->SetRGBColor(10, 10, 10);
+                //      Rp2040_->ready_IO();  // 修正：通过Rp2040_对象调用 重启问题
+                //      Rp2040_->SetBrightness(100);
+                //      Rp2040_->ReadMultipleRegs(0x01,0x05); //读取数据
+                    //  reciving = Rp2040_->GetTemperature();
+                    //  recivingligh = Rp2040_->GetLightIntensity();
+                    //  Rp2040_->SetPwmOutput(1, 254);
+                        // Rp2040_->SetServoAngle(1, 90);
+                    //  Rp2040_->SetServoAngles({ {2, 90}, {3, 90}, {4, 90}, {5, 90}, {6, 90}, {7, 90}, {8, 90}, {9, 90}, {10, 90}, {11, 90} });
+                    //  ESP_LOGE("", "reciving:%d,recivingligh:%d", reciving,recivingligh); 
+
+                    // 读取0x0C(高8位)和0x0D(低8位)合并为16位值
+                    //  uint16_t combinedValue = Rp2040_->ReadCombinedRegs(0x0C, 0x0D);
+                    //  printf("Combined value: 0x%04X\n", combinedValue);
         }
-        DualNetworkBoard::SetPowerSaveMode(enabled);
-    }
 
-    virtual Camera* GetCamera() override {
-        return camera_;
-    }
-};
+        // 更新温湿度显示
+        void UpdateAht30SensorDisplay(float temp, float hum) {
+            if (custom_display_) {
+                custom_display_->SetAht30SensoryText(temp, hum);
+            }
+        }
 
-DECLARE_BOARD(XINGZHI_CUBE_1_54_TFT_MATRIXBIT_ML307);
+        void InitializeSC7A20HSensor() {
+            // 初始化传感器
+            sc7a20h_sensor_ = new Sc7a20hSensor(i2c_bus_);
+            esp_err_t err = sc7a20h_sensor_->Initialize();
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "初始化SC7A20H传感器失败 (err=0x%x)", err);
+                return;
+            }
+
+            // 设置加速度数据回调
+            sc7a20h_sensor_->SetAccelerationCallback([this](float x, float y, float z) {
+                UpdateAccelerationDisplay(x, y, z);
+            });
+
+            // 启动周期性读取（每100ms一次）
+            err = sc7a20h_sensor_->StartReading(3000);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "启动周期性读取失败 (err=0x%x)", err);
+            }
+        }
+
+        // 更新加速度显示
+        void UpdateAccelerationDisplay(float x, float y, float z) {
+            if (custom_display_) {
+                char buffer[50];
+                sprintf(buffer, "X:%.2f Y:%.2f Z:%.2f", x, y, z);
+                custom_display_->SetAccelerationText(buffer);
+            }
+        }
+
+        void InitializeSpi() {
+            spi_bus_config_t buscfg = {};
+            buscfg.mosi_io_num = DISPLAY_SDA;
+            buscfg.miso_io_num = GPIO_NUM_NC;
+            buscfg.sclk_io_num = DISPLAY_SCL;
+            buscfg.quadwp_io_num = GPIO_NUM_NC;
+            buscfg.quadhd_io_num = GPIO_NUM_NC;
+            buscfg.max_transfer_sz = DISPLAY_WIDTH * DISPLAY_HEIGHT * sizeof(uint16_t);
+            ESP_ERROR_CHECK(spi_bus_initialize(DISPLAY_SPI_HOST, &buscfg, SPI_DMA_CH_AUTO));
+        }
+
+        void InitializeSDcardSpi() {
+            // 定义挂载点路径
+            // const char* mount_point = "/sdcard";
+            
+            // 初始化SPI总线配置
+            spi_bus_config_t bus_cnf = {
+                .mosi_io_num = SDCARD_PIN_MOSI,
+                .miso_io_num = SDCARD_PIN_MISO,
+                .sclk_io_num = SDCARD_PIN_CLK,
+                .quadwp_io_num = -1,
+                .quadhd_io_num = -1,
+                .max_transfer_sz = 400000,
+            };
+
+            // 初始化SPI总线
+            esp_err_t err = spi_bus_initialize(SDCARD_SPI_HOST, &bus_cnf, SPI_DMA_CH_AUTO);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "SPI总线初始化失败: %s", esp_err_to_name(err));
+                return;
+            }
+            
+            // 配置SD卡设备
+            static sdspi_device_config_t slot_cnf = {
+                .host_id = SDCARD_SPI_HOST,
+                .gpio_cs = SDCARD_PIN_CS,
+                .gpio_cd = SDSPI_SLOT_NO_CD,
+                .gpio_wp = GPIO_NUM_NC,
+                .gpio_int = GPIO_NUM_NC,
+            };
+            
+            // 配置FAT文件系统挂载选项
+            esp_vfs_fat_sdmmc_mount_config_t mount_cnf = {
+                .format_if_mount_failed = false,
+                .max_files = 5,
+                .allocation_unit_size = 16 * 1024,
+            };
+            
+            // 声明SD卡对象
+            sdmmc_card_t* card = NULL;
+            
+            // 先将宏结果赋值给变量，再取地址
+            sdmmc_host_t host = SDSPI_HOST_DEFAULT();
+            err = esp_vfs_fat_sdspi_mount(MOUNT_POINT, &host, &slot_cnf, &mount_cnf, &card);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "SD卡挂载失败: %s", esp_err_to_name(err));
+                custom_display_->SetSDcardText("SD卡挂载失败");
+                return;
+            } else if (err == ESP_OK) {
+                ESP_LOGI(TAG, "SD卡挂载成功");
+                custom_display_->SetSDcardText("SD卡挂载成功");
+            }
+            
+            // 打印SD卡信息
+            // #ifdef CONFIG_SDMMC_USE_CUSTOM_PINS
+            sdmmc_card_print_info(stdout, card);
+
+        
+            // // Use POSIX and C standard library functions to work with files.
+
+            // // First create a file.
+            // const char *file_hello = MOUNT_POINT"/hello.txt";
+
+            // ESP_LOGI(TAG, "Opening file %s", file_hello);
+            // FILE *f = fopen(file_hello, "w");
+            // if (f == NULL) {
+            //     ESP_LOGE(TAG, "Failed to open file for writing");
+            //     return;
+            // }
+            // fprintf(f, "Hello %s!\n", card->cid.name);
+            // fclose(f);
+            // ESP_LOGI(TAG, "File written");
+
+            // const char *file_foo = MOUNT_POINT"/foo.txt";
+
+            // // Check if destination file exists before renaming
+            // struct stat st;
+            // if (stat(file_foo, &st) == 0) {
+            //     // Delete it if it exists
+            //     unlink(file_foo);
+            // }
+
+            // // Rename original file
+            // ESP_LOGI(TAG, "Renaming file %s to %s", file_hello, file_foo);
+            // if (rename(file_hello, file_foo) != 0) {
+            //     ESP_LOGE(TAG, "Rename failed");
+            //     return;
+            // }
+
+            // // Open renamed file for reading
+            // ESP_LOGI(TAG, "Reading file %s", file_foo);
+            // f = fopen(file_foo, "r");
+            // if (f == NULL) {
+            //     ESP_LOGE(TAG, "Failed to open file for reading");
+            //     return;
+            // }
+
+            // // Read a line from file
+            // char line[64];
+            // fgets(line, sizeof(line), f);
+            // fclose(f);
+
+            // // Strip newline
+            // char *pos = strchr(line, '\n');
+            // if (pos) {
+            //     *pos = '\0';
+            // }
+            // ESP_LOGI(TAG, "Read from file: '%s'", line);
+
+            // // All done, unmount partition and disable SPI peripheral
+            // esp_vfs_fat_sdcard_unmount(MOUNT_POINT, card);
+            // ESP_LOGI(TAG, "Card unmounted");
+
+            // //deinitialize the bus after all devices are removed
+            // spi_bus_free(SDCARD_SPI_HOST);
+        }
+
+        void InitializeButtons() {
+            boot_button_.OnClick([this]() {
+                power_save_timer_->WakeUp();
+                auto& app = Application::GetInstance();
+                if (GetNetworkType() == NetworkType::WIFI) {
+                    if (app.GetDeviceState() == kDeviceStateStarting && !WifiStation::GetInstance().IsConnected()) {
+                        // cast to WifiBoard
+                        auto& wifi_board = static_cast<WifiBoard&>(GetCurrentBoard());
+                        wifi_board.ResetWifiConfiguration();
+                    }
+                }
+                app.ToggleChatState();
+            });
+
+            boot_button_.OnDoubleClick([this]() {
+                auto& app = Application::GetInstance();
+                if (app.GetDeviceState() == kDeviceStateStarting || app.GetDeviceState() == kDeviceStateWifiConfiguring) {
+                    SwitchNetworkType();   //切换4g和wifi
+                } else {
+                    if (custom_display_->IsVisible()) {
+                        custom_display_->Hide();
+                        ESP_LOGI(TAG,"隐藏传感器信息");
+                    } else {
+                        custom_display_->Show();
+                        ESP_LOGI(TAG,"显示传感器信息");
+                    } 
+                }
+            });
+
+            // boot_button_.OnDoubleClick([this]() {
+            //     ESP_LOGE(TAG,"双击");
+            //     power_save_timer_->WakeUp();
+            //     auto& app = Application::GetInstance();
+            //     // app.ResetDecoder();
+            //     if (app.GetDeviceState() == kDeviceStateIdle)
+            //     {  
+            //         ESP_LOGE(TAG,"双击事件触发");
+            //         // app.ResetDecoder();
+            //         app.WakeWordInvoke("音量调整到一百，另外你通过摄像机看到了什么");
+            //         vTaskDelay(pdMS_TO_TICKS(500));
+
+            //     }
+            // });
+        }
+
+        void InitializeSt7789Display() {
+            ESP_LOGD(TAG, "Install panel IO");
+            esp_lcd_panel_io_spi_config_t io_config = {};
+            io_config.cs_gpio_num = DISPLAY_CS;
+            io_config.dc_gpio_num = DISPLAY_DC;
+            io_config.spi_mode = 3;
+            io_config.pclk_hz = 80 * 1000 * 1000;
+            io_config.trans_queue_depth = 10;
+            io_config.lcd_cmd_bits = 8;
+            io_config.lcd_param_bits = 8;
+            ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi(DISPLAY_SPI_HOST, &io_config, &panel_io_));
+
+            ESP_LOGD(TAG, "Install LCD driver");
+            esp_lcd_panel_dev_config_t panel_config = {};
+            panel_config.reset_gpio_num = DISPLAY_RES;
+            panel_config.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB;
+            panel_config.bits_per_pixel = 16;
+
+            ESP_ERROR_CHECK(esp_lcd_new_panel_st7789(panel_io_, &panel_config, &panel_));
+            ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_));
+            ESP_ERROR_CHECK(esp_lcd_panel_init(panel_));
+            ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel_, DISPLAY_SWAP_XY));
+            ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel_, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y));
+            ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel_, true));
+
+            custom_display_ = new CustomLcdDisplay(panel_io_, panel_, DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y, 
+                DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);
+            display_ = custom_display_;
+        }
+
+        void InitializeIot() {
+            auto& thing_manager = iot::ThingManager::GetInstance();
+            thing_manager.AddThing(iot::CreateThing("Speaker"));
+            thing_manager.AddThing(iot::CreateThing("Screen"));
+            thing_manager.AddThing(iot::CreateThing("Battery"));
+            thing_manager.AddThing(iot::CreateThing("Sevor"));
+            // thing_manager.AddThing(iot::CreateThing("Lamp"));
+
+
+        }
+
+        void InitializeGpio() {
+            gpio_config_t zxc = {};
+            zxc.intr_type = GPIO_INTR_DISABLE;
+            zxc.mode = GPIO_MODE_OUTPUT;
+            zxc.pin_bit_mask = (1ULL << GPIO_NUM_11);
+            zxc.pull_down_en = GPIO_PULLDOWN_DISABLE; 
+            zxc.pull_up_en = GPIO_PULLUP_DISABLE;     
+            gpio_config(&zxc);
+            gpio_set_level(GPIO_NUM_11, 1); 
+
+        }
+
+        void InitializeCamera() {
+            camera_config_t config = {};
+            config.ledc_channel = LEDC_CHANNEL_2;  // LEDC通道选择  用于生成XCLK时钟 但是S3不用
+            config.ledc_timer = LEDC_TIMER_2; // LEDC timer选择  用于生成XCLK时钟 但是S3不用
+            config.pin_d0 = CAMERA_PIN_D0;
+            config.pin_d1 = CAMERA_PIN_D1;
+            config.pin_d2 = CAMERA_PIN_D2;
+            config.pin_d3 = CAMERA_PIN_D3;
+            config.pin_d4 = CAMERA_PIN_D4;
+            config.pin_d5 = CAMERA_PIN_D5;
+            config.pin_d6 = CAMERA_PIN_D6;
+            config.pin_d7 = CAMERA_PIN_D7;
+            config.pin_xclk = CAMERA_PIN_XCLK;
+            config.pin_pclk = CAMERA_PIN_PCLK;
+            config.pin_vsync = CAMERA_PIN_VSYNC;
+            config.pin_href = CAMERA_PIN_HREF;
+            config.pin_sccb_sda = -1;   // 这里写-1 表示使用已经初始化的I2C接口
+            config.pin_sccb_scl = CAMERA_PIN_SIOC;
+            config.sccb_i2c_port = 1;
+            config.pin_pwdn = CAMERA_PIN_PWDN;
+            config.pin_reset = CAMERA_PIN_RESET;
+            config.xclk_freq_hz = XCLK_FREQ_HZ;
+            config.pixel_format = PIXFORMAT_RGB565;
+            config.frame_size = FRAMESIZE_VGA;
+            config.jpeg_quality = 12;
+            config.fb_count = 1;
+            config.fb_location = CAMERA_FB_IN_PSRAM;
+            config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
+
+            camera_ = new Esp32Camera(config);
+        }
+
+        //     void Initializeuart() {
+        //     // 初始化 UART
+        //     uart_config_t uart_config = {
+        //         .baud_rate = 9600,
+        //         .data_bits = UART_DATA_8_BITS,
+        //         .parity = UART_PARITY_DISABLE,
+        //         .stop_bits = UART_STOP_BITS_1,
+        //         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+        //     };
+        //     UartSender::Initialize(UART_NUM_1, uart_config); //初始化 UART 并创建单例
+        // }
+
+    public:
+        XINGZHI_CUBE_1_54_TFT_MATRIXBIT_ML307() :
+            DualNetworkBoard(ML307_TX_PIN, ML307_RX_PIN, 4096),
+            boot_button_(BOOT_BUTTON_GPIO) {
+            InitializeI2c();    
+            InitializeGpio();
+            // Initializeuart();
+            InitializePowerManager();
+            InitializePowerSaveTimer();
+            InitializeAHT30Sensor();  
+            InitializeSC7A20HSensor();
+            InitializeSpi();
+            InitializeButtons();
+            InitializeSDcardSpi();
+            InitializeIot();
+            InitializeCamera();
+            InitializeSt7789Display();  
+        }
+
+        virtual AudioCodec* GetAudioCodec() override {
+            static Es8311AudioCodec audio_codec(
+                i2c_bus_, 
+                I2C_NUM_0,
+                AUDIO_INPUT_SAMPLE_RATE, 
+                AUDIO_OUTPUT_SAMPLE_RATE,
+                AUDIO_I2S_GPIO_MCLK, 
+                AUDIO_I2S_GPIO_BCLK, 
+                AUDIO_I2S_GPIO_WS, 
+                AUDIO_I2S_GPIO_DOUT, 
+                AUDIO_I2S_GPIO_DIN,
+                AUDIO_CODEC_PA_PIN, 
+                AUDIO_CODEC_ES8311_ADDR, 
+                AUDIO_INPUT_REFERENCE);
+                return &audio_codec;
+        }
+
+        virtual Display* GetDisplay() override {
+            return display_;
+        }
+
+        virtual bool GetBatteryLevel(int& level, bool& charging, bool& discharging) override {
+            static bool last_discharging = false;
+            charging = power_manager_->IsCharging();
+            discharging = power_manager_->IsDischarging();
+            if (discharging != last_discharging) {
+                power_save_timer_->SetEnabled(discharging);
+                last_discharging = discharging;
+            }
+            level = power_manager_->GetBatteryLevel();
+            return true;
+        }
+
+        virtual void SetPowerSaveMode(bool enabled) override {
+            if (!enabled) {
+                power_save_timer_->WakeUp();
+            }
+            DualNetworkBoard::SetPowerSaveMode(enabled);
+        }
+
+        virtual Camera* GetCamera() override {
+            return camera_;
+        }
+    };
+
+    DECLARE_BOARD(XINGZHI_CUBE_1_54_TFT_MATRIXBIT_ML307);

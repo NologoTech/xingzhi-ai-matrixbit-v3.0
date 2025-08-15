@@ -16,7 +16,7 @@
 #include <tls_transport.h>
 #include <web_socket.h>
 #include <esp_log.h>
-
+#include "rp2040iic.h"
 #include <wifi_station.h>
 #include <wifi_configuration_ap.h>
 #include <ssid_manager.h>
@@ -37,6 +37,7 @@ std::string WifiBoard::GetBoardType() {
 }
 
 void WifiBoard::EnterWifiConfigMode() {
+
     auto& application = Application::GetInstance();
     application.SetDeviceState(kDeviceStateWifiConfiguring);
 
@@ -66,7 +67,17 @@ void WifiBoard::EnterWifiConfigMode() {
 
 void WifiBoard::StartNetwork() {
     // User can press BOOT button while starting to enter WiFi configuration mode
+
     if (wifi_config_mode_) {
+                // 获取Rp2040单例实例（需确保i2c_bus已初始化）
+    // Rp2040* rp2040 = Rp2040::getInstance();
+    // if (rp2040 == nullptr) {
+    //     // 处理实例获取失败的情况（如日志打印）
+    //     ESP_LOGE(TAG, "Failed to get Rp2040 instance");
+        
+    //     return;
+    // }
+        // rp2040->io25_set_option();
         EnterWifiConfigMode();
         return;
     }
@@ -76,6 +87,14 @@ void WifiBoard::StartNetwork() {
     auto ssid_list = ssid_manager.GetSsidList();
     if (ssid_list.empty()) {
         wifi_config_mode_ = true;
+    //         Rp2040* rp2040 = Rp2040::getInstance();
+    // if (rp2040 == nullptr) {
+    //     // 处理实例获取失败的情况（如日志打印）
+    //     ESP_LOGE(TAG, "Failed to get Rp2040 instance");
+        
+    //     return;
+    // }
+        // rp2040->io25_set_option(); 
         EnterWifiConfigMode();
         return;
     }

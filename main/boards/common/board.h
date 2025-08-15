@@ -27,6 +27,7 @@ protected:
     std::string uuid_;
 
 public:
+
     static Board& GetInstance() {
         static Board* instance = static_cast<Board*>(create_board());
         return *instance;
